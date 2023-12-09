@@ -42,30 +42,35 @@ public class App {
 					Arrays.asList("main", "master", latestBranchName.substring(latestBranchName.lastIndexOf("/") + 1)));
 			System.out.println(targetBranches);
 
-			for (Ref branchRef : git.branchList().setListMode(ListMode.REMOTE).call()) {
-				String branchName = repository.shortenRefName(branchRef.getName());
+			boolean startsWithAny = false;
 
-				boolean startsWithAny = false;
-				for (String branch : targetBranches) {
-//					System.out.println(branchName);
+			for (String branch : targetBranches) {
+
+				for (Ref branchRef : git.branchList().setListMode(ListMode.REMOTE).call()) {
+					String branchName = repository.shortenRefName(branchRef.getName());
+
 					if (branchName.substring(branchName.lastIndexOf("/") + 1).equals(branch)) {
 						startsWithAny = true;
+					}
+
+					if (startsWithAny) {
+						System.out.println("Branch: " + branchName);
+						ObjectId branchObjectId = repository.resolve(branchName);
+						List<RevCommit> commits = listCommits(repository, branchObjectId);
+						System.out.println("Número de Commits: " + commits.size());
+						System.out.println("------------------------");
+
+						traverse(commits, repository, git, branchName);
 						break;
+					} else {
+						continue;
 					}
 				}
 
 				if (startsWithAny) {
-					System.out.println("Branch: " + branchName);
-					ObjectId branchObjectId = repository.resolve(branchName);
-					List<RevCommit> commits = listCommits(repository, branchObjectId);
-					System.out.println("Número de Commits: " + commits.size());
-					System.out.println("------------------------");
-
-					traverse(commits, repository, git, branchName);
 					break;
-				} else {
-					continue;
 				}
+
 			}
 
 		} catch (Exception e) {
@@ -76,8 +81,7 @@ public class App {
 	private static List<RevCommit> listCommits(Repository repository, ObjectId branchObjectId) throws Exception {
 		try (RevWalk revWalk = new RevWalk(repository)) {
 			revWalk.markStart(revWalk.parseCommit(branchObjectId));
-			return StreamSupport.stream(revWalk.spliterator(), false)
-					.filter(r -> r.getParentCount() == 1)
+			return StreamSupport.stream(revWalk.spliterator(), false).filter(r -> r.getParentCount() == 1)
 					.collect(Collectors.toList());
 		}
 	}
@@ -138,14 +142,18 @@ public class App {
 		for (Date current : sortedCommitDates) {
 			ObjectId obj = commits.get(current);
 			RevCommit commit = objectIdToRevCommit(repository, obj);
-//			String branchName = getNonMergeBranchForCommitObjectId(repository, git, obj, branch);
+			//Comment this variable to improve performance and remove branch name validation for commits
+			String branchName = getNonMergeBranchForCommitObjectId(repository, git, obj, branch);
 			if (commit != null) {
+				
 				val commitTimeInSeconds = commit.getCommitTime();
 				val commitCurrent = new Date((long) commitTimeInSeconds * 1000);
-//				System.out.println("Date: " + commitCurrent + ", Commit:" + commit.getName() + ", Parents: "
-//						+ commit.getParentCount() + ", BranchName: " + branchName);
+				//Comment the print below to use branch name validation
 				System.out.println("Date: " + commitCurrent + ", Commit:" + commit.getName() + ", Parents: "
-						+ commit.getParentCount());
+						+ commit.getParentCount() + ", BranchName: " + branchName);
+				//Use the below print to improve performance and avoid branch name validation
+//				System.out.println("Date: " + commitCurrent + ", Commit:" + commit.getName() + ", Parents: "
+//						+ commit.getParentCount());
 			}
 		}
 	}
@@ -161,12 +169,10 @@ public class App {
 		List<Ref> branches = git.branchList().setListMode(ListMode.REMOTE).call();
 		try (RevWalk revWalk = new RevWalk(repository)) {
 			RevCommit commit = revWalk.parseCommit(commitObjectId);
-			String headBranchName = getBranchNameFromLatestCommit(repository, git);
 			for (Ref branch : branches) {
 				if (isCommitInBranch(repository, commit, branch.getObjectId())) {
 					if (commit.getParentCount() == 1) {
-						if (origin.equals(repository.shortenRefName(branch.getName()))
-								&& origin.endsWith(headBranchName)) {
+						if (origin.equals(repository.shortenRefName(branch.getName()))) {
 							return repository.shortenRefName(branch.getName());
 						}
 					}
@@ -189,7 +195,7 @@ public class App {
 	}
 
 	private static boolean isMergeCommit(RevCommit commit) {
-		// Verifica se a mensagem do commit contém a palavra "merge"
+		// Checks if commit message contains the word "merge"
 		if (commit.getShortMessage().toLowerCase().contains("merge")
 				|| commit.getFullMessage().toLowerCase().contains("merge")) {
 			return false;
